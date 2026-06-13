@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+dist
+data
+reference
+.git
+.env.local
+*.local
+.DS_Store
+scripts/cloudflare/*.pid
+scripts/cloudflare/tunnel*.log
+public/sw.js
+public/sw.js.map
+public/swe-worker-development.js

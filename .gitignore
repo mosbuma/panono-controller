@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# serwist / service worker (built from app/sw.ts)
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+public/swe-worker-development.js
+
+# production / misc build output
+dist/
+
+# env & secrets (keep .env.example tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# runtime / local-only data (not docs/reference/)
+data/
+reference/
+
+# cloudflare dev tunnel
+scripts/cloudflare/*.log
+scripts/cloudflare/*.pid
+
+# typescript / tooling
+*.tsbuildinfo
+.eslintcache
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db

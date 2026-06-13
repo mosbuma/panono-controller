@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Panono">
+  <rect width="512" height="512" rx="96" fill="#0f1115"/>
+  <circle cx="256" cy="256" r="148" fill="#1a4d6d"/>
+  <circle cx="256" cy="256" r="118" fill="none" stroke="#7ec8e3" stroke-width="10"/>
+  <circle cx="256" cy="148" r="18" fill="#7ec8e3"/>
+  <circle cx="364" cy="256" r="18" fill="#7ec8e3"/>
+  <circle cx="256" cy="364" r="18" fill="#7ec8e3"/>
+  <circle cx="148" cy="256" r="18" fill="#7ec8e3"/>
+</svg>

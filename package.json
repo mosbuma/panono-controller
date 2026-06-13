@@ -1,0 +1,35 @@
+{
+  "name": "panono-webapp",
+  "version": "0.2.0",
+  "license": "MIT",
+  "private": true,
+  "description": "Next.js app to control a Panono 360 camera over WiFi.",
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "discover": "node scripts/discover.mjs",
+    "test-wss": "node scripts/test-wss.mjs",
+    "scan-ports": "node scripts/scan-camera-ports.mjs",
+    "cloudflare:up": "bash scripts/cloudflare/cloudflare-up.sh",
+    "cloudflare:down": "bash scripts/cloudflare/cloudflare-down.sh"
+  },
+  "dependencies": {
+    "@serwist/next": "^9.5.11",
+    "jszip": "^3.10.1",
+    "next": "^15.3.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "serwist": "^9.5.11",
+    "sharp": "^0.34.2",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.4",
+    "@types/react-dom": "^19.1.5",
+    "@types/three": "^0.184.1",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.2"
+  }
+}

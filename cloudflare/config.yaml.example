@@ -1,0 +1,10 @@
+# Copy to ~/.cloudflared/config-panono-webapp.yaml (or any path you prefer).
+# Set credentials-file to the JSON from `cloudflared tunnel create`.
+# Keep service as http://127.0.0.1:3000 for the Next.js dev server (not https://).
+tunnel: panono-webapp-dev-tunnel
+credentials-file: /home/YOUR_USER/.cloudflared/YOUR_TUNNEL_UUID.json
+
+ingress:
+  - hostname: "dev.example.com"
+    service: http://127.0.0.1:3000
+  - service: http_status:404

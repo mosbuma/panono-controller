@@ -1,0 +1,11 @@
+services:
+  panono-webapp:
+    build: .
+    image: panono-webapp:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      # Dev only — hostname(s) from your Cloudflare tunnel config (see CLOUDFLARED.md)
+      # NEXT_DEV_TUNNEL_HOST: dev.example.com
