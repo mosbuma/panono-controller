@@ -22,7 +22,7 @@ dist/
 
 # runtime / local-only data (not docs/reference/)
 data/
-reference/
+/reference/
 
 # cloudflare dev tunnel
 scripts/cloudflare/*.log

@@ -1,75 +1,106 @@
 import JSZip from "jszip";
+import {
+  demosaicBayerPlanes,
+  findChannelFilenames,
+  hasBayerChannels,
+} from "@/lib/merge-bayer-channels";
 
 const ACCEL_RECORD_BYTES = 16;
 const ACCEL_SAMPLES = 50;
 
-/** Merge separate R/G0/G1/B channel JPEGs into one RGB blob. */
-export async function mergeChannelJpegs(
-  zip: JSZip,
-  filenames: string[]
-): Promise<Blob | null> {
-  const find = (tag: string) => filenames.find((f) => f.includes(tag));
-  const redName = find("_red");
-  const g0Name = find("_green0");
-  const g1Name = find("_green1");
-  const blueName = find("_blue");
-  if (!redName || !g0Name || !g1Name || !blueName) return null;
-
-  const [redF, g0F, g1F, blueF] = [redName, g0Name, g1Name, blueName].map((n) =>
-    zip.file(n)
-  );
-  if (!redF || !g0F || !g1F || !blueF) return null;
-
-  const [rBmp, g0Bmp, g1Bmp, bBmp] = await Promise.all(
-    [redF, g0F, g1F, blueF].map(async (f) =>
-      createImageBitmap(await f.async("blob"))
-    )
-  );
-
-  const w = rBmp.width;
-  const h = rBmp.height;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-
-  const tmp = document.createElement("canvas");
-  tmp.width = w;
-  tmp.height = h;
-  const tctx = tmp.getContext("2d");
-  if (!tctx) return null;
-
-  const out = ctx.createImageData(w, h);
-  const rPx = grayChannel(tctx, rBmp);
-  const g0Px = grayChannel(tctx, g0Bmp);
-  const g1Px = grayChannel(tctx, g1Bmp);
-  const bPx = grayChannel(tctx, bBmp);
-
-  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
-    out.data[p] = rPx[i];
-    out.data[p + 1] = Math.round((g0Px[i] + g1Px[i]) / 2);
-    out.data[p + 2] = bPx[i];
-    out.data[p + 3] = 255;
-  }
-  ctx.putImageData(out, 0, 0);
-  rBmp.close();
-  g0Bmp.close();
-  g1Bmp.close();
-  bBmp.close();
-
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92));
-}
-
 function grayChannel(tctx: CanvasRenderingContext2D, bmp: ImageBitmap): Uint8Array {
+  // The canvas MUST be at least the bitmap size, otherwise getImageData reads
+  // out-of-bounds (transparent black) and the plane decodes to all zeros.
+  // Setting width/height also clears any previous plane.
+  tctx.canvas.width = bmp.width;
+  tctx.canvas.height = bmp.height;
   tctx.drawImage(bmp, 0, 0);
   const data = tctx.getImageData(0, 0, bmp.width, bmp.height).data;
   const gray = new Uint8Array(bmp.width * bmp.height);
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    gray[j] = data[i]; // channels are equal in grayscale JPEG
+    gray[j] = data[i]!;
   }
   return gray;
 }
+
+async function loadGrayPlane(
+  zip: JSZip,
+  name: string,
+  tctx: CanvasRenderingContext2D
+): Promise<{ data: Uint8Array; width: number; height: number }> {
+  const file = zip.file(name);
+  if (!file) throw new Error(`Missing ${name}`);
+  const bmp = await createImageBitmap(await file.async("blob"));
+  const data = grayChannel(tctx, bmp);
+  const width = bmp.width;
+  const height = bmp.height;
+  bmp.close();
+  return { data, width, height };
+}
+
+/**
+ * Demosaic the half-res _red / _green0 / _green1 / _blue Bayer planes into a
+ * full-resolution (2x) sRGB blob, applying the per-camera black level and
+ * colour-correction matrix.
+ */
+export async function mergeChannelJpegs(
+  zip: JSZip,
+  filenames: string[],
+  color?: { blackLevel?: number; colorMatrix?: number[][] }
+): Promise<Blob | null> {
+  const ch = findChannelFilenames(filenames);
+  if (!ch.red || !ch.green0 || !ch.blue) return null;
+
+  const tmp = document.createElement("canvas");
+  tmp.width = 1;
+  tmp.height = 1;
+  const tctx = tmp.getContext("2d");
+  if (!tctx) return null;
+
+  const [r, g0, b, g1] = await Promise.all([
+    loadGrayPlane(zip, ch.red, tctx),
+    loadGrayPlane(zip, ch.green0, tctx),
+    loadGrayPlane(zip, ch.blue, tctx),
+    ch.green1 ? loadGrayPlane(zip, ch.green1, tctx) : Promise.resolve(null),
+  ]);
+
+  const w = r.width;
+  const h = r.height;
+  if (g0.width !== w || b.width !== w || g0.height !== h || b.height !== h) {
+    return null;
+  }
+
+  const { rgb, width: W, height: H } = demosaicBayerPlanes(
+    {
+      red: r.data,
+      green0: g0.data,
+      green1: g1?.data,
+      blue: b.data,
+      width: w,
+      height: h,
+    },
+    { blackLevel: color?.blackLevel, colorMatrix: color?.colorMatrix }
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const img = ctx.createImageData(W, H);
+  for (let i = 0, p = 0; i < W * H; i++, p += 4) {
+    img.data[p] = rgb[i * 3]!;
+    img.data[p + 1] = rgb[i * 3 + 1]!;
+    img.data[p + 2] = rgb[i * 3 + 2]!;
+    img.data[p + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92));
+}
+
+export { hasBayerChannels };
 
 /**
  * Read LIS3DSH accelerometer tail samples and return the measured "up" vector

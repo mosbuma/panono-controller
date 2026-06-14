@@ -10,6 +10,23 @@ export interface ManifestCamera {
   /** 3x3 world->camera rotation. */
   rotationMatrix: number[][];
   translationVector: number[];
+  /**
+   * Per-camera black level (sensor pedestal). Subtracted from the raw planes
+   * during linearisation (see lib/merge-bayer-channels.ts). Absent on preview
+   * UPFs / older manifests.
+   */
+  blackLevel?: number;
+  /**
+   * Per-camera 3x3 colour-correction matrix (rows sum to 1, neutral-
+   * preserving). Applied to the linear RGB before sRGB encoding.
+   */
+  colorMatrix?: number[][];
+  /**
+   * Per-camera linear RGB white-balance gains [r, g, b]. NOTE: the channel
+   * planes are already white-balanced by the camera, so these must NOT be
+   * re-applied during demosaicing. Kept for reference/metadata only.
+   */
+  whiteBalance?: number[];
 }
 
 export interface ManifestImageSet {

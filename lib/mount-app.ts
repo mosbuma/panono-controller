@@ -18,11 +18,35 @@ import {
   pruneFlatPreviewCache,
 } from "@/lib/flat-preview-cache";
 import { showTypedConfirmDialog } from "@/lib/typed-confirm-dialog";
+import {
+  buildDownloadBasename,
+  dedupeBasenames,
+  downloadPtGuiZipFilename,
+  downloadUpfFilename,
+} from "@/lib/panorama-filename";
+import {
+  deleteRegistryEntry,
+  getRegistryMap,
+  pendingRegistrationCount,
+  prunePanoramaRegistry,
+  queuePendingRegistration,
+  readLastSubjects,
+  readRegisterInfo,
+  saveLastSubjects,
+  saveRegistryEntry,
+  shiftPendingRegistration,
+  writeRegisterInfo,
+  type PanoramaRegistryRecord,
+} from "@/lib/panorama-registry";
+import { showRegisterInfoDialog } from "@/lib/register-info-dialog";
 
 const DEFAULT_URL = "ws://192.168.80.80:42345/";
 const STORAGE_KEY = "panono.lastUrl";
 const SHOW_PREVIEW_KEY = "panono.showPreview";
 const SHOW_RPC_LOG = process.env.NODE_ENV === "development";
+const DEFAULT_CAPTURE_HINT =
+  "Triggers a 360° shot. The new image appears in the gallery below once the camera finishes the preview.";
+const REGISTER_CAPTURE_HINT = "You'll be asked for subject names before each shot.";
 
 function readShowPreview(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -39,6 +63,7 @@ let previewsDone = 0;
 let previewsTotal = 0;
 let previewHydrateGen = 0;
 let previewProgressHideTimer = 0;
+let registryByImageId = new Map<string, PanoramaRegistryRecord>();
 
 export function mountPanonoApp(container: HTMLElement): () => void {
   const app = container;
@@ -101,8 +126,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   const storageWrap = el("div", { class: "stat-grid", style: "margin-top:12px" });
   const refreshStatusBtn = el("button", {}, ["Refresh"]) as HTMLButtonElement;
 
-  grid.append(
-    el("div", { class: "card" }, [
+  const statusCard = el("div", { class: "card camera-section hidden" }, [
       el("h2", {}, ["Status"]),
       el("div", { class: "stat-grid" }, [
         statBattery.box,
@@ -112,31 +136,44 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       ]),
       storageWrap,
       el("div", { class: "section-actions", style: "margin-top:14px" }, [refreshStatusBtn]),
-    ])
-  );
+    ]);
+  grid.append(statusCard);
 
   const captureBtn = el("button", { class: "primary capture-btn" }, [
     "Capture panorama",
   ]) as HTMLButtonElement;
+  const captureHint = el("p", { class: "hint" }, [
+    readRegisterInfo() ? REGISTER_CAPTURE_HINT : DEFAULT_CAPTURE_HINT,
+  ]);
+  const registerInfoCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
+  registerInfoCheck.checked = readRegisterInfo();
+  const registerInfoToggle = el("label", { class: "preview-toggle" }, [
+    registerInfoCheck,
+    " Register info",
+  ]);
+  registerInfoCheck.onchange = () => {
+    writeRegisterInfo(registerInfoCheck.checked);
+    captureHint.textContent = registerInfoCheck.checked
+      ? REGISTER_CAPTURE_HINT
+      : DEFAULT_CAPTURE_HINT;
+  };
   grid.append(
     el("div", { class: "card" }, [
       el("h2", {}, ["Capture"]),
       captureBtn,
-      el("p", { class: "hint" }, [
-        "Triggers a 360° shot. The new image appears in the gallery below once the camera finishes the preview.",
-      ]),
+      captureHint,
+      registerInfoToggle,
     ])
   );
 
   const optionsList = el("div", { class: "options-list" });
   const loadOptionsBtn = el("button", {}, ["Load options"]) as HTMLButtonElement;
-  grid.append(
-    el("div", { class: "card span-2" }, [
+  const optionsCard = el("div", { class: "card span-2 camera-section hidden" }, [
       el("h2", {}, ["Camera options"]),
       el("div", { class: "section-actions" }, [loadOptionsBtn]),
       optionsList,
-    ])
-  );
+    ]);
+  grid.append(optionsCard);
 
   const gallery = el("div", { class: "gallery" });
   const refreshUpfBtn = el("button", {}, ["Refresh"]) as HTMLButtonElement;
@@ -164,8 +201,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     previewProgressLabel,
     el("div", { class: "bar preview-progress-bar" }, [previewProgressFill])
   );
-  grid.append(
-    el("div", { class: "card span-2" }, [
+  const panoramasCard = el("div", { class: "card span-2 camera-section hidden" }, [
       el("h2", {}, ["Panoramas (UPF)"]),
       el("div", { class: "section-actions" }, [
         refreshUpfBtn,
@@ -182,14 +218,40 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       ]),
       previewProgressWrap,
       gallery,
-    ])
-  );
+    ]);
+  grid.append(panoramasCard);
 
   const logEl = SHOW_RPC_LOG ? el("div", { class: "log" }) : null;
+  let syncLogActions: (() => void) | null = null;
   if (SHOW_RPC_LOG && logEl) {
+    const clearLogBtn = el("button", {}, ["Clear"]) as HTMLButtonElement;
+    const copyLogBtn = el("button", {}, ["Copy"]) as HTMLButtonElement;
+    clearLogBtn.disabled = true;
+    copyLogBtn.disabled = true;
+
+    syncLogActions = (): void => {
+      const empty = !logEl.childElementCount;
+      clearLogBtn.disabled = empty;
+      copyLogBtn.disabled = empty;
+    };
+
+    clearLogBtn.onclick = () => {
+      logEl.innerHTML = "";
+      syncLogActions?.();
+    };
+
+    copyLogBtn.onclick = () => {
+      const text = [...logEl.children].map((line) => line.textContent ?? "").join("\n");
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => toast("Log copied"))
+        .catch(() => toast("Copy failed", true));
+    };
+
     grid.append(
       el("div", { class: "card span-2" }, [
         el("h2", {}, ["JSON-RPC log"]),
+        el("div", { class: "section-actions" }, [clearLogBtn, copyLogBtn]),
         logEl,
       ])
     );
@@ -222,7 +284,15 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     logEl.append(line);
     logEl.scrollTop = logEl.scrollHeight;
     while (logEl.childElementCount > 200) logEl.firstElementChild?.remove();
+    syncLogActions?.();
   }
+
+  function setCameraSectionsVisible(visible: boolean): void {
+    for (const card of [statusCard, optionsCard, panoramasCard]) {
+      card.classList.toggle("hidden", !visible);
+    }
+  }
+  setCameraSectionsVisible(false);
 
   function setGalleryBulkEnabled(on: boolean): void {
     const enabled = on && currentUpfs.length > 0;
@@ -378,6 +448,63 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     enqueueFlatPreviews(missing);
   }
 
+  async function loadRegistryFor(upfs: UpfInfo[]): Promise<void> {
+    registryByImageId = await getRegistryMap(upfs.map((u) => u.image_id));
+  }
+
+  function registryLabel(reg: PanoramaRegistryRecord): string {
+    return reg.detailSubject ? `${reg.mainSubject} · ${reg.detailSubject}` : reg.mainSubject;
+  }
+
+  async function onEditRegistry(imageId: string): Promise<void> {
+    const existing = registryByImageId.get(imageId);
+    const last = readLastSubjects();
+    const result = await showRegisterInfoDialog(
+      {
+        mainSubject: existing?.mainSubject ?? last.mainSubject,
+        detailSubject: existing?.detailSubject ?? last.detailSubject,
+        includeGeo: last.includeGeo,
+      },
+      { title: "Edit panorama info", confirmLabel: "Save" }
+    );
+    if (!result) return;
+    saveLastSubjects(result);
+    const record: PanoramaRegistryRecord = {
+      imageId,
+      mainSubject: result.mainSubject,
+      detailSubject: result.detailSubject,
+      geo: result.geo ?? existing?.geo,
+      registeredAt: Date.now(),
+    };
+    await saveRegistryEntry(record);
+    registryByImageId.set(imageId, record);
+    renderUpfs(currentUpfs);
+    toast("Info saved");
+  }
+
+  async function linkPendingToUpfInfos(upfInfos: UpfInfo[]): Promise<void> {
+    for (const info of upfInfos) {
+      const pending = shiftPendingRegistration();
+      if (!pending) break;
+      let geo = pending.geo;
+      if (!geo && info.location) {
+        geo = { lat: info.location.lat, lng: info.location.lng, source: "camera" };
+      }
+      const record: PanoramaRegistryRecord = {
+        imageId: info.image_id,
+        mainSubject: pending.mainSubject,
+        detailSubject: pending.detailSubject,
+        geo,
+        registeredAt: Date.now(),
+      };
+      await saveRegistryEntry(record);
+      registryByImageId.set(info.image_id, record);
+    }
+    if (SHOW_RPC_LOG && pendingRegistrationCount() > 0) {
+      log("info", `${pendingRegistrationCount()} pending registration(s) unmatched`);
+    }
+  }
+
   function renderUpfs(upfs: UpfInfo[]): void {
     currentUpfs = upfs;
     thumbRefs.clear();
@@ -427,11 +554,14 @@ export function mountPanonoApp(container: HTMLElement): () => void {
         thumbParts.push(imgwrap);
       }
 
+      const reg = registryByImageId.get(upf.image_id);
+      const upfFilename = downloadUpfFilename(upf.image_id, upf.capture_date, reg);
+
       const downloadUpfBtn = el("button", { class: "primary" }, ["Download UPF"]) as HTMLButtonElement;
       downloadUpfBtn.disabled = !download;
       downloadUpfBtn.onclick = () => {
         if (!download) return;
-        void downloadUpfBlob(download, `${upf.image_id}.upf`).catch((err) =>
+        void downloadUpfBlob(download, upfFilename).catch((err) =>
           toast(`Download failed: ${err instanceof Error ? err.message : err}`, true)
         );
       };
@@ -439,23 +569,41 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       const zipBtn = el("button", {}, ["PTGui ZIP"]) as HTMLButtonElement;
       zipBtn.title = "Full-res 36 JPEGs + manifest for PTGui (built in browser)";
       zipBtn.disabled = !download;
-      zipBtn.onclick = () => void onExportPtGuiZip(upf.image_id, download, fmtDate(upf.capture_date));
+      zipBtn.onclick = () =>
+        void onExportPtGuiZip(upf.image_id, download, fmtDate(upf.capture_date), reg);
 
       const delBtn = el("button", { class: "danger" }, ["Delete"]) as HTMLButtonElement;
       delBtn.onclick = () => onDelete(upf.image_id);
+
+      const metaParts: HTMLElement[] = [
+        el("div", { class: "date" }, [fmtDate(upf.capture_date)]),
+      ];
+      if (reg) {
+        metaParts.push(el("div", { class: "registry-label" }, [registryLabel(reg)]));
+      }
+      if (reg?.geo) {
+        metaParts.push(
+          el("div", { class: "registry-label" }, [
+            `${reg.geo.lat.toFixed(5)}, ${reg.geo.lng.toFixed(5)}`,
+          ])
+        );
+      }
+      metaParts.push(el("div", {}, [`${fmtBytes(upf.upf_size ?? upf.size)} · full UPF`]));
+
+      const editInfoBtn = el("button", {}, ["Edit info"]) as HTMLButtonElement;
+      editInfoBtn.onclick = () => void onEditRegistry(upf.image_id);
 
       gallery.append(
         el("div", { class: buildPreviews ? "thumb" : "thumb no-preview" }, [
           ...thumbParts,
           el("div", { class: "meta" }, [
-            el("div", { class: "date" }, [fmtDate(upf.capture_date)]),
-            el("div", {}, [`${fmtBytes(upf.upf_size ?? upf.size)} · full UPF`]),
+            ...metaParts,
             el("div", { class: "actions", style: "margin-top:8px" }, [
               ...(buildPreviews ? [] : [view360Btn]),
               downloadUpfBtn,
               zipBtn,
             ]),
-            el("div", { class: "actions", style: "margin-top:6px" }, [delBtn]),
+            el("div", { class: "actions", style: "margin-top:6px" }, [editInfoBtn, delBtn]),
           ]),
         ])
       );
@@ -533,6 +681,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       status = { ...status, ...(res as CameraStatus) };
       renderStatus();
       setControlsEnabled(true);
+      setCameraSectionsVisible(true);
       disconnectBtn.disabled = false;
       toast(
         authed
@@ -552,6 +701,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     client.disconnect();
     authed = false;
     setControlsEnabled(false);
+    setCameraSectionsVisible(false);
     disconnectBtn.disabled = true;
     connectBtn.disabled = false;
   }
@@ -569,18 +719,32 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   async function refreshUpfs(): Promise<void> {
     try {
       const res = await client.getUpfInfos();
-      renderUpfs(res?.upf_infos ?? []);
+      const upfs = res?.upf_infos ?? [];
+      await prunePanoramaRegistry(new Set(upfs.map((u) => u.image_id)));
+      await loadRegistryFor(upfs);
+      renderUpfs(upfs);
     } catch (err) {
       toast(`UPF list failed: ${err instanceof Error ? err.message : err}`, true);
     }
   }
 
   async function onCapture(): Promise<void> {
+    if (readRegisterInfo()) {
+      const result = await showRegisterInfoDialog(readLastSubjects());
+      if (!result) return;
+      saveLastSubjects(result);
+      queuePendingRegistration({
+        mainSubject: result.mainSubject,
+        detailSubject: result.detailSubject,
+        geo: result.geo,
+      });
+    }
+
     captureBtn.disabled = true;
     try {
       await client.capture();
       toast("Capture triggered");
-      window.setTimeout(refreshUpfs, 2500);
+      window.setTimeout(() => void refreshUpfs(), 2500);
     } catch (err) {
       toast(`Capture failed: ${err instanceof Error ? err.message : err}`, true);
     } finally {
@@ -615,7 +779,8 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   async function onExportPtGuiZip(
     imageId: string,
     upfUrl: string | undefined,
-    label: string
+    label: string,
+    reg?: PanoramaRegistryRecord
   ): Promise<void> {
     if (!upfUrl) return;
     const sizeHint = currentUpfs.find((u) => u.image_id === imageId);
@@ -623,8 +788,13 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     if (!confirm(`Build PTGui ZIP from full UPF (${size}) in the browser? May take a minute.`))
       return;
     toast("Building PTGui ZIP…");
+    const zipName = downloadPtGuiZipFilename(
+      imageId,
+      sizeHint?.capture_date,
+      reg ?? registryByImageId.get(imageId)
+    );
     try {
-      await downloadPtGuiZip(upfUrl, imageId);
+      await downloadPtGuiZip(upfUrl, imageId, zipName);
       toast(`PTGui ZIP — ${label}`);
     } catch (err) {
       toast(`Export failed: ${err instanceof Error ? err.message : err}`, true);
@@ -644,15 +814,28 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   }
 
   async function onDownloadAllUpfs(): Promise<void> {
-    const items = currentUpfs
+    const rawItems = currentUpfs
       .map((upf) => ({
         imageId: upf.image_id,
         upfUrl: resolveCameraUrl(upf.upf_url, client.url),
         label: fmtDate(upf.capture_date),
+        captureDate: upf.capture_date,
+        reg: registryByImageId.get(upf.image_id),
       }))
       .filter((item): item is typeof item & { upfUrl: string } => Boolean(item.upfUrl));
 
-    if (!items.length) return;
+    if (!rawItems.length) return;
+
+    const basenames = rawItems.map(
+      (item) => buildDownloadBasename(item.captureDate, item.reg) ?? item.imageId
+    );
+    const deduped = dedupeBasenames(basenames);
+    const items = rawItems.map((item, i) => ({
+      imageId: item.imageId,
+      upfUrl: item.upfUrl,
+      label: item.label,
+      filename: `${deduped[i]}.upf`,
+    }));
 
     const totalBytes = currentUpfs.reduce((sum, u) => sum + (u.upf_size ?? u.size ?? 0), 0);
     if (
@@ -729,6 +912,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
         try {
           await client.deleteUpf(imageId);
           await deletePreviewCacheEntry(imageId);
+          await deleteRegistryEntry(imageId);
           ok++;
         } catch (err) {
           failed++;
@@ -764,6 +948,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     try {
       await client.deleteUpf(imageId);
       await deletePreviewCacheEntry(imageId);
+      await deleteRegistryEntry(imageId);
       toast("Deleted");
       await refreshUpfs();
     } catch (err) {
@@ -776,7 +961,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   refreshStatusBtn.onclick = refreshStatus;
   captureBtn.onclick = onCapture;
   loadOptionsBtn.onclick = onLoadOptions;
-  refreshUpfBtn.onclick = refreshUpfs;
+  refreshUpfBtn.onclick = () => void refreshUpfs();
   downloadAllBtn.onclick = () => void onDownloadAllUpfs();
   deleteAllBtn.onclick = () => void onDeleteAllUpfs();
   urlInput.addEventListener("keydown", (e) => {
@@ -795,6 +980,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
             : "Disconnected";
     if (state === "disconnected" || state === "error") {
       setControlsEnabled(false);
+      setCameraSectionsVisible(false);
       disconnectBtn.disabled = true;
       connectBtn.disabled = false;
     }
@@ -805,6 +991,14 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   client.on("status_update", (params) => {
     status = { ...status, ...params };
     renderStatus();
+  });
+
+  client.on("upf_infos_update", ({ upf_infos }) => {
+    if (!upf_infos.length) return;
+    void (async () => {
+      await linkPendingToUpfInfos(upf_infos);
+      await refreshUpfs();
+    })();
   });
 
   onFlatPreviewStart((imageId) => {

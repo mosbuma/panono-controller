@@ -4,8 +4,9 @@ import path from "path";
 export type StitchVariant = "thumb" | "preview" | "full";
 export type StitchMethod = "calibrated" | "opticalflow";
 
-// v2: vignetting + exposure + multiband stitcher (invalidate v1 cache)
-const CACHE_ROOT = path.join(process.cwd(), "data", "stitches-v2");
+// v3: corrected colour pipeline (black level + colourMatrix + sRGB, no double
+// white balance) — invalidate v1/v2 caches that held the old green/pink output.
+const CACHE_ROOT = path.join(process.cwd(), "data", "stitches-v3");
 
 const VARIANT_OPTS: Record<
   StitchVariant,

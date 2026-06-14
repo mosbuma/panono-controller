@@ -5,6 +5,7 @@ import type {
   JsonRpcNotification,
   JsonRpcResponse,
   OptionValue,
+  UpfInfo,
 } from "@/lib/types";
 
 type Pending = {
@@ -24,6 +25,7 @@ export interface PanonoEvents {
   state: (state: ConnectionState, detail?: string) => void;
   notification: (note: JsonRpcNotification) => void;
   status_update: (params: Partial<CameraStatus>) => void;
+  upf_infos_update: (params: { upf_infos: UpfInfo[] }) => void;
   log: (direction: "in" | "out" | "info", text: string) => void;
 }
 
@@ -41,6 +43,7 @@ export class PanonoClient {
     state: new Set(),
     notification: new Set(),
     status_update: new Set(),
+    upf_infos_update: new Set(),
     log: new Set(),
   };
   private requestTimeoutMs = 15000;
@@ -176,6 +179,9 @@ export class PanonoClient {
       this.emit("notification", note);
       if (note.method === "status_update") {
         this.emit("status_update", (note.params ?? {}) as Partial<CameraStatus>);
+      } else if (note.method === "upf_infos_update") {
+        const params = (note.params ?? {}) as { upf_infos?: UpfInfo[] };
+        this.emit("upf_infos_update", { upf_infos: params.upf_infos ?? [] });
       }
     }
   }

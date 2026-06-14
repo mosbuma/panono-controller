@@ -205,6 +205,27 @@ While processing, `capture_available` is typically false; **`status_update`** no
 
 ---
 
+### `upf_infos_update` (notification)
+
+Push notification when a panorama entry is created or updated on the camera (no JSON-RPC `id`).
+
+**Params:**
+
+```json
+{
+  "upf_infos": [
+    {
+      "image_id": "f06149545a99399c1dc447d6…",
+      "capture_date": "2026-06-14 11:24:38,000"
+    }
+  ]
+}
+```
+
+The webapp uses this to link user-entered subject names (Register info) to `image_id` immediately after capture, before `get_upf_infos` is polled.
+
+---
+
 ### `get_option_list`
 
 **Params:** none
@@ -430,7 +451,7 @@ A `.upf` file is a **ZIP** containing:
 | `LIS3DSH_ACCELEROMETER.dat` | IMU samples |
 | `vignetting_coeffs.txt` | Per-camera vignetting correction |
 
-See `lib/manifest.ts` and [docs/reference/ptgui-export.md](docs/reference/ptgui-export.md) for export/stitching usage.
+See `lib/manifest.ts` and [reference/ptgui-export.md](reference/ptgui-export.md) for export/stitching usage.
 
 ---
 
@@ -462,7 +483,7 @@ To probe unknown methods, use the JSON-RPC log in the web UI or send raw request
 | `npm run test-wss` | Compare `ws://` vs `wss://` on camera port |
 | `npm run scan-ports` | TCP port scan + TLS/HTTP/WebSocket probes |
 
-Implementation reference: [`lib/panono.ts`](lib/panono.ts), [`lib/types.ts`](lib/types.ts).
+Implementation reference: [`lib/panono.ts`](../lib/panono.ts), [`lib/types.ts`](../lib/types.ts).
 
 ---
 

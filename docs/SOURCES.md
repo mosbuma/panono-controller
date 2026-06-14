@@ -11,7 +11,7 @@ Reverse-engineered from open-source clients and validated on firmware **4.2.x** 
 | [florianl/panonoctl](https://github.com/florianl/panonoctl) | Python | JSON-RPC methods, SSDP discovery |
 | [trumank/panonoctl-rs](https://github.com/trumank/panonoctl-rs) | Rust | `UpfInfo` fields, HTTP panorama paths |
 
-Documented in this repo: [PANONO-API.md](../PANONO-API.md).
+Documented in this repo: [PANONO-API.md](PANONO-API.md).
 
 The camera speaks **JSON-RPC 2.0 over WebSocket** (`ws://`, port assigned at runtime) and serves `.upf` files over **HTTP** on port 80.
 
@@ -21,10 +21,12 @@ The camera speaks **JSON-RPC 2.0 over WebSocket** (`ws://`, port assigned at run
 |--------|----------------|
 | Panono `.upf` ZIP layout | `manifest.json`, per-camera JPEGs, `vignetting_coeffs.txt`, IMU logs |
 | [sihagm/makeRGB](https://github.com/sihagm/makeRGB) | PTGui export naming (`img1.jpg` … `img36.jpg`) |
-| [Maenpää et al. 2018](https://onlinelibrary.wiley.com/doi/full/10.1111/phor.12230) | MPC36 calibration background — [docs/reference/README.md](../reference/README.md) |
+| Official **PanonoUPFConverter v1.1.0** binary (reverse-engineered) | Bayer recombine, white balance, sRGB colour pipeline — [reference/CONVERTER.md](reference/CONVERTER.md) |
+| [Maenpää et al. 2018](https://onlinelibrary.wiley.com/doi/full/10.1111/phor.12230) | MPC36 calibration background — [reference/README.md](reference/README.md) |
 | In-repo stitcher (`lib/stitcher/`) | Equirect projection, vignetting, exposure, multiband blend (server / flat preview) |
 
-PTGui workflow: [docs/reference/ptgui-export.md](../reference/ptgui-export.md).
+PTGui workflow: [reference/ptgui-export.md](reference/ptgui-export.md).
+Colour pipeline (how UPF channel JPEGs become colour): [reference/CONVERTER.md](reference/CONVERTER.md).
 
 ## Web app stack
 
@@ -40,7 +42,7 @@ PTGui workflow: [docs/reference/ptgui-export.md](../reference/ptgui-export.md).
 
 | Reference | Use |
 |-----------|-----|
-| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/) | Dev HTTPS testing — [CLOUDFLARED.md](../CLOUDFLARED.md) |
+| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/) | Dev HTTPS testing — [CLOUDFLARED.md](CLOUDFLARED.md) |
 | Synology Reverse Proxy + Let's Encrypt | Production HTTPS — [deployment/DEPLOYMENT.md](./deployment/DEPLOYMENT.md) |
 
 ## Not from Panono GmbH
@@ -58,4 +60,4 @@ This project is **not** affiliated with or endorsed by Panono. Protocol details 
 
 This repository is released under the [MIT License](../LICENSE).
 
-Third-party code and references (e.g. [florianl/panonoctl](https://github.com/florianl/panonoctl) — Apache-2.0) remain under their respective licences; see [Attribution](../PANONO-API.md#attribution) in `PANONO-API.md`.
+Third-party code and references (e.g. [florianl/panonoctl](https://github.com/florianl/panonoctl) — Apache-2.0) remain under their respective licences; see [Attribution](PANONO-API.md#attribution) in `PANONO-API.md`.

@@ -177,10 +177,10 @@ NEXT_DEV_TUNNEL_HOST=dev.example.com
 
 | Path | Purpose |
 |------|---------|
-| [`cloudflare/config.yaml.example`](cloudflare/config.yaml.example) | Template for your `~/.cloudflared/` config |
-| [`scripts/cloudflare/cloudflare-up.sh`](scripts/cloudflare/cloudflare-up.sh) | Background tunnel (`npm run cloudflare:up`) |
-| [`scripts/cloudflare/cloudflare-down.sh`](scripts/cloudflare/cloudflare-down.sh) | Stop tunnel (`npm run cloudflare:down`) |
-| [`app/sw.ts`](app/sw.ts) | Service worker source |
-| [`components/SwRegister.tsx`](components/SwRegister.tsx) | Client-side SW registration |
+| [`cloudflare/config.yaml.example`](../cloudflare/config.yaml.example) | Template for your `~/.cloudflared/` config |
+| [`scripts/cloudflare/cloudflare-up.sh`](../scripts/cloudflare/cloudflare-up.sh) | Background tunnel (`npm run cloudflare:up`) |
+| [`scripts/cloudflare/cloudflare-down.sh`](../scripts/cloudflare/cloudflare-down.sh) | Stop tunnel (`npm run cloudflare:down`) |
+| [`app/sw.ts`](../app/sw.ts) | Service worker source |
+| [`components/SwRegister.tsx`](../components/SwRegister.tsx) | Client-side SW registration |
 
 Tunnel credentials (`~/.cloudflared/*.json`, `cert.pem`) stay **outside** the repo.
