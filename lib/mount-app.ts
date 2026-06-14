@@ -17,10 +17,12 @@ import {
   getPreviewUpfBuffer,
   pruneFlatPreviewCache,
 } from "@/lib/flat-preview-cache";
+import { showTypedConfirmDialog } from "@/lib/typed-confirm-dialog";
 
 const DEFAULT_URL = "ws://192.168.80.80:42345/";
 const STORAGE_KEY = "panono.lastUrl";
 const SHOW_PREVIEW_KEY = "panono.showPreview";
+const SHOW_RPC_LOG = process.env.NODE_ENV === "development";
 
 function readShowPreview(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -141,6 +143,9 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   const downloadAllBtn = el("button", {}, ["Download all UPFs"]) as HTMLButtonElement;
   downloadAllBtn.disabled = true;
   downloadAllBtn.title = "Downloads each full UPF one by one; allow multiple downloads in the browser";
+  const deleteAllBtn = el("button", { class: "danger section-actions-end" }, ["Delete all"]) as HTMLButtonElement;
+  deleteAllBtn.disabled = true;
+  deleteAllBtn.title = "Permanently remove every panorama from the camera";
   const showPreviewCheck = el("input", { type: "checkbox" }) as HTMLInputElement;
   showPreviewCheck.checked = readShowPreview();
   const showPreviewToggle = el("label", { class: "preview-toggle" }, [
@@ -162,7 +167,12 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   grid.append(
     el("div", { class: "card span-2" }, [
       el("h2", {}, ["Panoramas (UPF)"]),
-      el("div", { class: "section-actions" }, [refreshUpfBtn, downloadAllBtn, showPreviewToggle]),
+      el("div", { class: "section-actions" }, [
+        refreshUpfBtn,
+        downloadAllBtn,
+        showPreviewToggle,
+        deleteAllBtn,
+      ]),
       el("p", { class: "hint" }, [
         "Enable ",
         el("strong", {}, ["Show preview"]),
@@ -175,13 +185,15 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     ])
   );
 
-  const logEl = el("div", { class: "log" });
-  grid.append(
-    el("div", { class: "card span-2" }, [
-      el("h2", {}, ["JSON-RPC log"]),
-      logEl,
-    ])
-  );
+  const logEl = SHOW_RPC_LOG ? el("div", { class: "log" }) : null;
+  if (SHOW_RPC_LOG && logEl) {
+    grid.append(
+      el("div", { class: "card span-2" }, [
+        el("h2", {}, ["JSON-RPC log"]),
+        logEl,
+      ])
+    );
+  }
 
   const toastEl = el("div", { class: "toast" });
   document.body.append(toastEl);
@@ -203,6 +215,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   }
 
   function log(direction: "in" | "out" | "info" | "err", text: string): void {
+    if (!logEl) return;
     const line = el("div", { class: direction }, [
       `${direction === "out" ? "→" : direction === "in" ? "←" : "•"} ${text}`,
     ]);
@@ -211,12 +224,18 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     while (logEl.childElementCount > 200) logEl.firstElementChild?.remove();
   }
 
+  function setGalleryBulkEnabled(on: boolean): void {
+    const enabled = on && currentUpfs.length > 0;
+    downloadAllBtn.disabled = !enabled;
+    deleteAllBtn.disabled = !enabled;
+  }
+
   function setControlsEnabled(on: boolean): void {
     captureBtn.disabled = !on;
     refreshStatusBtn.disabled = !on;
     loadOptionsBtn.disabled = !on;
     refreshUpfBtn.disabled = !on;
-    downloadAllBtn.disabled = !on || !currentUpfs.length;
+    setGalleryBulkEnabled(on);
   }
   setControlsEnabled(false);
 
@@ -372,6 +391,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     if (!upfs.length) {
       gallery.append(el("div", { class: "empty" }, ["No panoramas on the camera yet."]));
       previewProgressWrap.classList.add("hidden");
+      setGalleryBulkEnabled(client.isConnected);
       return;
     }
 
@@ -447,7 +467,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     } else {
       previewProgressWrap.classList.add("hidden");
     }
-    downloadAllBtn.disabled = !client.isConnected || !sorted.length;
+    setGalleryBulkEnabled(client.isConnected);
   }
 
   function renderOptions(options: CameraOption[], values: Record<string, unknown>): void {
@@ -643,7 +663,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       return;
     }
 
-    downloadAllBtn.disabled = true;
+    setGalleryBulkEnabled(false);
     clearTimeout(previewProgressHideTimer);
     previewProgressWrap.classList.remove("hidden");
     previewProgressFill.setAttribute("style", "width:0%");
@@ -674,7 +694,68 @@ export function mountPanonoApp(container: HTMLElement): () => void {
       toast(`Bulk download failed: ${err instanceof Error ? err.message : err}`, true);
       previewProgressWrap.classList.add("hidden");
     } finally {
-      downloadAllBtn.disabled = !client.isConnected || !currentUpfs.length;
+      setGalleryBulkEnabled(client.isConnected);
+    }
+  }
+
+  async function onDeleteAllUpfs(): Promise<void> {
+    if (!currentUpfs.length) return;
+
+    const count = currentUpfs.length;
+    const confirmed = await showTypedConfirmDialog({
+      title: "Delete all panoramas",
+      message: `This permanently removes all ${count} panorama${count === 1 ? "" : "s"} from the camera. This cannot be undone.`,
+      confirmLabel: "Delete all",
+    });
+    if (!confirmed) return;
+
+    const imageIds = currentUpfs.map((u) => u.image_id);
+    setGalleryBulkEnabled(false);
+    refreshUpfBtn.disabled = true;
+    clearTimeout(previewProgressHideTimer);
+    previewProgressWrap.classList.remove("hidden");
+    previewProgressFill.setAttribute("style", "width:0%");
+
+    let ok = 0;
+    let failed = 0;
+
+    try {
+      for (let i = 0; i < imageIds.length; i++) {
+        const imageId = imageIds[i]!;
+        const pct = Math.round((i / imageIds.length) * 100);
+        previewProgressFill.setAttribute("style", `width:${pct}%`);
+        previewProgressLabel.textContent = `Deleting ${i + 1}/${imageIds.length}…`;
+
+        try {
+          await client.deleteUpf(imageId);
+          await deletePreviewCacheEntry(imageId);
+          ok++;
+        } catch (err) {
+          failed++;
+          log(
+            "err",
+            `delete_upf ${imageId}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+
+      previewProgressFill.setAttribute("style", "width:100%");
+      previewProgressLabel.textContent =
+        failed > 0 ? `Deleted ${ok}/${imageIds.length} · ${failed} failed` : `Deleted ${ok} panorama${ok === 1 ? "" : "s"}`;
+      toast(
+        failed > 0 ? `Deleted ${ok}, ${failed} failed` : `Deleted ${ok} panorama${ok === 1 ? "" : "s"}`,
+        failed > 0
+      );
+      previewProgressHideTimer = window.setTimeout(() => {
+        previewProgressWrap.classList.add("hidden");
+      }, 2000);
+      await refreshUpfs();
+    } catch (err) {
+      toast(`Delete all failed: ${err instanceof Error ? err.message : err}`, true);
+      previewProgressWrap.classList.add("hidden");
+    } finally {
+      refreshUpfBtn.disabled = !client.isConnected;
+      setGalleryBulkEnabled(client.isConnected);
     }
   }
 
@@ -697,6 +778,7 @@ export function mountPanonoApp(container: HTMLElement): () => void {
   loadOptionsBtn.onclick = onLoadOptions;
   refreshUpfBtn.onclick = refreshUpfs;
   downloadAllBtn.onclick = () => void onDownloadAllUpfs();
+  deleteAllBtn.onclick = () => void onDeleteAllUpfs();
   urlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") onConnect();
   });

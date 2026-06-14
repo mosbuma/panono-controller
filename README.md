@@ -10,7 +10,7 @@ Protocol notes: [PANONO-API.md](PANONO-API.md). Sources: [docs/SOURCES.md](docs/
 - Live status (battery, storage, capture-ready, `status_update` push)
 - **Capture**, camera **options**, UPF **gallery**, **delete**
 - **Download UPF** / **Download all UPFs** (sequential, browser downloads)
-- **PTGui ZIP** export in the browser ([workflow](docs/reference/ptgui-export.md))
+- **PTGui ZIP** export in the browser ([workflow](docs/reference/ptgui-export.md), [lens settings](reference/ptgui/PTGUI.md))
 - **360° mesh viewer** (preview or full-res UPF)
 - Optional **flat gallery previews** (client stitch + IndexedDB cache; off by default)
 - **Service Worker** for offline shell — install via **Add to Home Screen**

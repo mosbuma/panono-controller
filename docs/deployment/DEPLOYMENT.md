@@ -26,6 +26,32 @@ docker compose up -d
 
 The app listens on **port 3000** inside the container. Terminate TLS at the reverse proxy — do not expose plain HTTP to the internet.
 
+The Dockerfile uses **`node:22-alpine`** (same as `reference/removedoubles`). Synology builds often need **`network: host`** during `docker compose build` so `npm ci` can reach the registry — see `docker-compose.yml` and `scripts/build.sh`.
+
+If `npm ci` still fails with `Exit handler never called!`, retry with host networking explicitly:
+
+```bash
+docker build --network=host -t panono-webapp:latest .
+```
+
+Ensure the NAS has enough free RAM during the build (~2 GB+).
+
+### Diagnose `npm ci` (verbose)
+
+To see **which package npm was working on** when the build fails, rebuild with verbose logging:
+
+```bash
+NPM_CI_VERBOSE=1 npm run docker:build
+```
+
+Or in Container Manager / compose:
+
+```bash
+docker compose build --build-arg NPM_CI_LOGLEVEL=verbose --progress=plain --no-cache
+```
+
+The last lines before `Exit handler never called!` usually show the failing fetch or lifecycle script (often **`sharp`** postinstall or a registry timeout — not a specific app dependency bug). Save the full log from DSM **Container Manager → Image → Build log**.
+
 ### Verify locally
 
 ```bash

@@ -1,6 +1,13 @@
 services:
   panono-webapp:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Host networking during build avoids Synology DNS/proxy issues during npm ci.
+      network: host
+      args:
+        # Override at build time: docker compose build --build-arg NPM_CI_LOGLEVEL=verbose
+        NPM_CI_LOGLEVEL: ${NPM_CI_LOGLEVEL:-warn}
     image: panono-webapp:latest
     restart: unless-stopped
     ports:

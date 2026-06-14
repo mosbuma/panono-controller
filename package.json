@@ -12,7 +12,8 @@
     "test-wss": "node scripts/test-wss.mjs",
     "scan-ports": "node scripts/scan-camera-ports.mjs",
     "cloudflare:up": "bash scripts/cloudflare/cloudflare-up.sh",
-    "cloudflare:down": "bash scripts/cloudflare/cloudflare-down.sh"
+    "cloudflare:down": "bash scripts/cloudflare/cloudflare-down.sh",
+    "docker:build": "bash scripts/build.sh"
   },
   "dependencies": {
     "@serwist/next": "^9.5.11",

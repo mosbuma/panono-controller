@@ -322,7 +322,8 @@ button.danger { color: var(--bad); border-color: rgba(255, 93, 108, 0.4); }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.bad { border-color: var(--bad); }
 
-.section-actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.section-actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.section-actions-end { margin-left: auto; }
 
 .thumb .imgwrap.has-preview {
   color: transparent;
@@ -380,6 +381,78 @@ button.danger { color: var(--bad); border-color: rgba(255, 93, 108, 0.4); }
   color: var(--text-dim);
   margin-bottom: 12px;
   min-height: 18px;
+}
+
+/* ---- typed confirm dialog ---- */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(5, 7, 11, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.confirm-dialog {
+  width: min(440px, 100%);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+.confirm-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 650;
+}
+.confirm-message {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.confirm-hint {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.confirm-hint code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+.confirm-code {
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", monospace;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-align: center;
+  padding: 12px 10px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--bad);
+  user-select: all;
+}
+.confirm-code-input {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", monospace;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 /* ---- 360 viewer ---- */
