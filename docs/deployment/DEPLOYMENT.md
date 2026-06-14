@@ -24,7 +24,16 @@ docker compose build
 docker compose up -d
 ```
 
-The app listens on **port 3000** inside the container. Terminate TLS at the reverse proxy — do not expose plain HTTP to the internet.
+Copy `.env.example` to `.env` on the NAS if you need overrides. **`PORT` defaults to `3000`** when unset (`docker-compose.yml` and the Dockerfile). Set `PORT` in `.env` only when 3000 is already in use (e.g. `3010`).
+
+```bash
+cp .env.example .env
+# uncomment PORT=3010 (or another free port) if needed
+```
+
+With **`network_mode: host`**, the app listens on `PORT` on the NAS IP (no `ports:` mapping). Point the Synology reverse proxy at `http://127.0.0.1:<PORT>`.
+
+Terminate TLS at the reverse proxy — do not expose plain HTTP to the internet.
 
 The Dockerfile uses **`node:22-alpine`** (same as `reference/removedoubles`). Synology builds often need **`network: host`** during `docker compose build` so `npm ci` can reach the registry — see `docker-compose.yml` and `scripts/build.sh`.
 
@@ -62,14 +71,14 @@ curl -sI http://127.0.0.1:3000/ | head
 
 1. **Control Panel → Login Portal → Advanced → Reverse Proxy → Create**
 2. **Source:** `https`, hostname `<your-hostname>`, port `443`
-3. **Destination:** `http`, hostname `127.0.0.1` (or container host IP), port `3000`
+3. **Destination:** `http`, hostname `127.0.0.1` (or container host IP), port **`PORT` from `.env`** (e.g. `3010`)
 4. Enable **HSTS** and **Let's Encrypt** for `<your-hostname>`
 5. Save and test: `https://<your-hostname>`
 
 ### Firewall
 
 - Allow **443** (HTTPS) from the internet if you want remote install/update of the PWA
-- Port **3000** only needs to be reachable on localhost/LAN from the reverse proxy
+- Port **3000** (or your **`PORT`**) only needs to be reachable on localhost/LAN from the reverse proxy
 
 ## Service Worker / PWA
 
@@ -92,6 +101,7 @@ Copy `.env.example` to `.env.local` and set `NEXT_DEV_TUNNEL_HOST` to the hostna
 
 | Variable | Where | Purpose |
 |----------|--------|---------|
+| `PORT` | `.env` on NAS (optional) | Host port with `network_mode: host`; **default `3000`** if unset |
 | `NEXT_DEV_TUNNEL_HOST` | `.env.local` (dev only) | Comma-separated hostnames for Next.js `allowedDevOrigins` |
 | `DISABLE_SW=1` | dev | Skip service worker generation |
 | `NEXT_PUBLIC_APP_VERSION` | build (auto from `package.json`) | Shown in UI title bar |

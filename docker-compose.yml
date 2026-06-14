@@ -9,10 +9,13 @@ services:
         # Override at build time: docker compose build --build-arg NPM_CI_LOGLEVEL=verbose
         NPM_CI_LOGLEVEL: ${NPM_CI_LOGLEVEL:-warn}
     image: panono-webapp:latest
+    container_name: panono-webapp
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    network_mode: host
+    env_file:
+      - .env
     environment:
-      NODE_ENV: production
+      - NODE_ENV=production
+      - PORT=${PORT:-3000}
       # Dev only — hostname(s) from your Cloudflare tunnel config (see CLOUDFLARED.md)
       # NEXT_DEV_TUNNEL_HOST: dev.example.com
