@@ -12,6 +12,8 @@ services:
     container_name: panono-webapp
     restart: unless-stopped
     network_mode: host
+    # Root simplifies permissions on Synology (same as reference/removedoubles).
+    user: "${CONTAINER_UID:-0}:${CONTAINER_GID:-0}"
     env_file:
       - .env
     environment:
