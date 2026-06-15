@@ -1,184 +1,43 @@
 /**
- * Flat equirectangular thumbnail via calibrated multi-camera projection
- * (same math as lib/stitcher/stitch.ts at 360×180, without multiband blending).
+ * Flat equirectangular gallery thumbnail.
+ *
+ * The thumbnail is produced *server-side* by the improved stitcher
+ * (POST /api/stitch, variant "thumb" → lib/stitcher/equirect-official.ts) and
+ * cached both server-side (data/stitches-v4) and client-side (IndexedDB).
+ * Generation therefore needs a connection to the app server; when offline we
+ * only serve already-cached thumbnails and skip generation entirely.
  */
-import JSZip from "jszip";
-import type { ManifestCamera, UpfManifest } from "@/lib/manifest";
-import { mergeChannelJpegs } from "@/lib/upf-client";
-import {
-  getFlatPreviewBlob,
-  putFlatPreview,
-  putPreviewUpf,
-} from "@/lib/flat-preview-cache";
-import { fetchUpfArrayBuffer } from "@/lib/fetch-upf-client";
-import { computeExposureGains } from "@/lib/stitcher/exposure";
-import {
-  dirFromLonLat,
-  projectSample,
-  type CameraImage,
-  type StitchContext,
-} from "@/lib/stitcher/projection";
-import { parseVignettingCoeffs } from "@/lib/stitcher/vignetting";
+import { getFlatPreviewBlob, putFlatPreview } from "@/lib/flat-preview-cache";
 
-const THUMB_W = 360;
-const THUMB_H = 180;
+/** Server stitch variant used for gallery thumbnails (see lib/stitch-cache.ts). */
+const THUMB_VARIANT = "thumb";
 
-/** Softer seams for low-res gallery thumbs (server stitch uses defaults). */
-const THUMB_BLEND = {
-  borderFeather: 0.2,
-  radialInner: 0.32,
-  radialOuter: 0.58,
-} as const;
+/** Preview generation requires the app server; false when the browser is offline. */
+export function previewsAvailableOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
 
-async function loadCameraBlob(zip: JSZip, cam: ManifestCamera): Promise<Blob | null> {
-  const files = cam.imageFilenames ?? [];
-  if (!files.length) return null;
-  if (files.length === 1) {
-    const file = zip.file(files[0]);
-    return file ? file.async("blob") : null;
+async function fetchServerThumb(imageId: string, previewUpfUrl: string): Promise<Blob> {
+  const res = await fetch("/api/stitch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: previewUpfUrl, imageId, variant: THUMB_VARIANT }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Thumbnail stitch failed (${res.status}): ${detail}`);
   }
-  return mergeChannelJpegs(zip, files);
+  const blob = await res.blob();
+  if (!blob.size) throw new Error("Empty thumbnail response");
+  return blob;
 }
 
-async function bitmapToRgb(bmp: ImageBitmap): Promise<Uint8Array> {
-  const canvas = document.createElement("canvas");
-  canvas.width = bmp.width;
-  canvas.height = bmp.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas unsupported");
-  ctx.drawImage(bmp, 0, 0);
-  const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
-  const rgb = new Uint8Array(bmp.width * bmp.height * 3);
-  for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-    rgb[j] = data[i]!;
-    rgb[j + 1] = data[i + 1]!;
-    rgb[j + 2] = data[i + 2]!;
-  }
-  return rgb;
-}
-
-async function loadCameraImage(zip: JSZip, cam: ManifestCamera): Promise<CameraImage | null> {
-  const blob = await loadCameraBlob(zip, cam);
-  if (!blob) return null;
-  const bmp = await createImageBitmap(blob);
-  const width = cam.imageWidth || bmp.width;
-  const height = cam.imageHeight || bmp.height;
-  const rgb = await bitmapToRgb(bmp);
-  bmp.close();
-  return { cam, rgb, width, height };
-}
-
-function stitchFlatThumb(
-  images: CameraImage[],
-  ctx: StitchContext,
-  width: number,
-  height: number
-): Uint8ClampedArray {
-  const size = width * height;
-  const accR = new Float64Array(size);
-  const accG = new Float64Array(size);
-  const accB = new Float64Array(size);
-  const accW = new Float64Array(size);
-
-  for (let py = 0; py < height; py++) {
-    const latDeg = 90 - (py / height) * 180;
-    for (let px = 0; px < width; px++) {
-      const lonDeg = (px / width) * 360 - 180;
-      const [dx, dy, dz] = dirFromLonLat(lonDeg, latDeg);
-      const o = py * width + px;
-
-      for (let ci = 0; ci < images.length; ci++) {
-        const hit = projectSample(images[ci]!, ci, ctx, dx, dy, dz);
-        if (!hit) continue;
-        accR[o] += hit.r * hit.weight;
-        accG[o] += hit.g * hit.weight;
-        accB[o] += hit.b * hit.weight;
-        accW[o] += hit.weight;
-      }
-    }
-  }
-
-  const out = new Uint8ClampedArray(size * 4);
-  for (let i = 0; i < size; i++) {
-    const w = accW[i]!;
-    const o = i * 4;
-    if (w > 1e-6) {
-      out[o] = clampByte(accR[i]! / w);
-      out[o + 1] = clampByte(accG[i]! / w);
-      out[o + 2] = clampByte(accB[i]! / w);
-      out[o + 3] = 255;
-    } else {
-      out[o] = 12;
-      out[o + 1] = 14;
-      out[o + 2] = 20;
-      out[o + 3] = 255;
-    }
-  }
-  return out;
-}
-
-function clampByte(v: number): number {
-  return Math.min(255, Math.max(0, Math.round(v)));
-}
-
+/** Build the flat thumbnail for one panorama via the server stitcher. */
 export async function buildFlatPreviewBlob(
   imageId: string,
   previewUpfUrl: string
 ): Promise<Blob> {
-  const upfBuf = await fetchUpfArrayBuffer(previewUpfUrl);
-  void putPreviewUpf(
-    imageId,
-    previewUpfUrl,
-    new Blob([upfBuf], { type: "application/zip" })
-  );
-  const zip = await JSZip.loadAsync(upfBuf);
-  const manifestFile = zip.file("manifest.json");
-  if (!manifestFile) throw new Error("manifest.json missing");
-
-  const manifest = JSON.parse(await manifestFile.async("string")) as UpfManifest;
-  const setId = manifest.defaultSetId ?? 0;
-  const cameras = (
-    manifest.imageSets?.[setId]?.cameras ?? manifest.imageSets?.[0]?.cameras ?? []
-  )
-    .slice()
-    .sort((a, b) => a.id - b.id);
-
-  const loaded = (
-    await Promise.all(cameras.map((cam) => loadCameraImage(zip, cam)))
-  ).filter((img): img is CameraImage => img != null);
-
-  if (!loaded.length) throw new Error("No camera images loaded");
-
-  const vignettingFile = zip.file("vignetting_coeffs.txt");
-  const vignetting = vignettingFile
-    ? parseVignettingCoeffs(await vignettingFile.async("string"))
-    : null;
-
-  const ctx: StitchContext = {
-    vignetting,
-    exposure: computeExposureGains(loaded),
-    blend: THUMB_BLEND,
-  };
-
-  const canvas = document.createElement("canvas");
-  canvas.width = THUMB_W;
-  canvas.height = THUMB_H;
-  const canvasCtx = canvas.getContext("2d");
-  if (!canvasCtx) throw new Error("Canvas unsupported");
-
-  const pixels = stitchFlatThumb(loaded, ctx, THUMB_W, THUMB_H);
-  const imageData = canvasCtx.createImageData(THUMB_W, THUMB_H);
-  imageData.data.set(pixels);
-  canvasCtx.putImageData(imageData, 0, 0);
-
-  const jpeg = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("Canvas toBlob failed"))),
-      "image/jpeg",
-      0.82
-    );
-  });
-  return jpeg;
+  return fetchServerThumb(imageId, previewUpfUrl);
 }
 
 export async function loadCachedFlatPreviewUrl(
@@ -201,6 +60,8 @@ export function stopFlatPreviewGeneration(): void {
 }
 
 export function enqueueFlatPreviews(jobs: PreviewJob[]): void {
+  // Generation needs the app server; skip entirely when offline.
+  if (!previewsAvailableOnline()) return;
   cancelled = false;
   queue = jobs.filter((j) => j.previewUrl);
   if (!running && queue.length) void drainPreviewQueue();
@@ -232,6 +93,8 @@ function emitStart(imageId: string): void {
 async function drainPreviewQueue(): Promise<void> {
   running = true;
   while (queue.length && !cancelled) {
+    // Bail out if connectivity dropped mid-run.
+    if (!previewsAvailableOnline()) break;
     const job = queue.shift()!;
     emitStart(job.imageId);
     try {

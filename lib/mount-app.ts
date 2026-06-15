@@ -10,6 +10,7 @@ import {
   loadCachedFlatPreviewUrl,
   onFlatPreviewReady,
   onFlatPreviewStart,
+  previewsAvailableOnline,
   stopFlatPreviewGeneration,
 } from "@/lib/flat-preview";
 import {
@@ -398,6 +399,12 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     imgwrap.textContent = "";
   }
 
+  function setThumbOffline(imgwrap: HTMLDivElement): void {
+    imgwrap.classList.remove("has-preview", "is-building");
+    imgwrap.style.backgroundImage = "";
+    imgwrap.textContent = "preview offline";
+  }
+
   function setThumbPreview(imgwrap: HTMLDivElement, imageId: string, objectUrl: string): void {
     revokeThumbObjectUrl(imageId);
     thumbObjectUrls.set(imageId, objectUrl);
@@ -437,6 +444,19 @@ export function mountPanonoApp(container: HTMLElement): () => void {
 
     if (!missing.length) {
       previewProgressWrap.classList.add("hidden");
+      return;
+    }
+
+    // Thumbnails are stitched on the server; without a connection we can only
+    // show what is already cached. Mark the rest and skip generation.
+    if (!previewsAvailableOnline()) {
+      for (const job of missing) {
+        const imgwrap = thumbRefs.get(job.imageId);
+        if (imgwrap) setThumbOffline(imgwrap);
+      }
+      previewProgressLabel.textContent = `${missing.length} preview${missing.length === 1 ? "" : "s"} unavailable offline`;
+      previewProgressFill.setAttribute("style", "width:0%");
+      previewProgressWrap.classList.remove("hidden");
       return;
     }
 
@@ -1017,10 +1037,22 @@ export function mountPanonoApp(container: HTMLElement): () => void {
     updatePreviewProgress();
   });
 
+  // Server-side thumbnails: pause generation when offline, resume on reconnect.
+  const onConnectivityOnline = (): void => {
+    if (previewsAvailableOnline() && currentUpfs.length && readShowPreview()) {
+      renderUpfs(currentUpfs);
+    }
+  };
+  const onConnectivityOffline = (): void => stopFlatPreviewGeneration();
+  window.addEventListener("online", onConnectivityOnline);
+  window.addEventListener("offline", onConnectivityOffline);
+
   return () => {
     clearTimeout(previewProgressHideTimer);
     stopFlatPreviewGeneration();
     revokeAllThumbObjectUrls();
+    window.removeEventListener("online", onConnectivityOnline);
+    window.removeEventListener("offline", onConnectivityOffline);
     client.disconnect();
   };
 }
