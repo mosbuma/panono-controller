@@ -20,7 +20,7 @@ fi
 if [[ ! -f "$CONFIG" ]]; then
   echo "Config not found: $CONFIG" >&2
   echo "Copy cloudflare/config.yaml.example to your ~/.cloudflared/ and set credentials-file." >&2
-  echo "See CLOUDFLARED.md" >&2
+  echo "See docs/CLOUDFLARED.md" >&2
   exit 1
 fi
 

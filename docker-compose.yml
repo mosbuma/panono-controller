@@ -19,5 +19,5 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=${PORT:-3000}
-      # Dev only — hostname(s) from your Cloudflare tunnel config (see CLOUDFLARED.md)
+      # Dev only — hostname(s) from your Cloudflare tunnel config (see docs/CLOUDFLARED.md)
       # NEXT_DEV_TUNNEL_HOST: dev.example.com

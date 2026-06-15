@@ -2,7 +2,7 @@
 
 A [Next.js](https://nextjs.org/) PWA to control a [Panono](https://en.wikipedia.org/wiki/Panono) 360° camera over WiFi. The browser talks to the camera **directly** (WebSocket + HTTP). Downloads, PTGui export, flat previews, and the 360° viewer run **client-side**.
 
-Protocol notes: [PANONO-API.md](PANONO-API.md). Sources: [docs/SOURCES.md](docs/SOURCES.md). License: [MIT](LICENSE).
+Protocol notes: [docs/PANONO-API.md](docs/PANONO-API.md). Sources: [docs/SOURCES.md](docs/SOURCES.md). License: [MIT](LICENSE).
 
 ## Features
 
@@ -10,7 +10,7 @@ Protocol notes: [PANONO-API.md](PANONO-API.md). Sources: [docs/SOURCES.md](docs/
 - Live status (battery, storage, capture-ready, `status_update` push)
 - **Capture**, camera **options**, UPF **gallery**, **delete**
 - **Download UPF** / **Download all UPFs** (sequential, browser downloads)
-- **PTGui ZIP** export in the browser ([workflow](docs/reference/ptgui-export.md), [lens settings](reference/ptgui/PTGUI.md))
+- **PTGui ZIP** export in the browser ([workflow](docs/reference/ptgui-export.md), [lens settings](docs/ptgui/PTGUI.md))
 - **360° mesh viewer** (preview or full-res UPF)
 - Optional **flat gallery previews** (client stitch + IndexedDB cache; off by default)
 - **Service Worker** for offline shell — install via **Add to Home Screen**
@@ -40,10 +40,10 @@ Open `http://<host>:3000`, join camera WiFi, connect (default `ws://192.168.80.8
 
 ```bash
 npm run dev
-npm run cloudflare:up   # see CLOUDFLARED.md
+npm run cloudflare:up   # see docs/CLOUDFLARED.md
 ```
 
-Set `NEXT_DEV_TUNNEL_HOST` in `.env.local` to the hostname in your tunnel config (see [CLOUDFLARED.md](CLOUDFLARED.md)).
+Set `NEXT_DEV_TUNNEL_HOST` in `.env.local` to the hostname in your tunnel config (see [docs/CLOUDFLARED.md](docs/CLOUDFLARED.md)).
 
 ## Production (Docker + HTTPS)
 
@@ -85,12 +85,15 @@ Put **HTTPS** reverse proxy in front (Synology Let's Encrypt recommended). Full 
 
 ## UPF format
 
-A `.upf` is a ZIP: `manifest.json`, 36 camera JPEGs, optional `vignetting_coeffs.txt`, IMU logs. See [PANONO-API.md](PANONO-API.md).
+A `.upf` is a ZIP: `manifest.json`, 36 camera JPEGs, optional `vignetting_coeffs.txt`, IMU logs. See [docs/PANONO-API.md](docs/PANONO-API.md).
 
 ## Reference
 
-- [docs/reference/](docs/reference/) — PTGui export, stitching notes, calibration paper index
-- [CLOUDFLARED.md](CLOUDFLARED.md) — Cloudflare tunnel for dev
+- [docs/reference/CONVERTER.md](docs/reference/CONVERTER.md) — official UPF Converter colour pipeline (Bayer recombine, white balance, sRGB), reverse-engineered from the binary
+- [docs/reference/ptgui-export.md](docs/reference/ptgui-export.md) — PTGui export workflow
+- [docs/reference/](docs/reference/) — stitching notes, calibration paper index
+- [docs/ptgui/PTGUI.md](docs/ptgui/PTGUI.md) — PTGui lens/sensor settings + bundled template
+- [docs/CLOUDFLARED.md](docs/CLOUDFLARED.md) — Cloudflare tunnel for dev
 
 ## License
 

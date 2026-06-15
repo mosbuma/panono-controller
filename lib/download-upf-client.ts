@@ -15,6 +15,7 @@ export interface BulkUpfItem {
   imageId: string;
   upfUrl: string;
   label?: string;
+  filename?: string;
 }
 
 export interface BulkDownloadProgress {
@@ -37,7 +38,7 @@ export async function downloadAllUpfs(
     const label = item.label ?? item.imageId;
     onProgress?.({ done: i, total, currentLabel: label });
     try {
-      await downloadUpfBlob(item.upfUrl, `${item.imageId}.upf`);
+      await downloadUpfBlob(item.upfUrl, item.filename ?? `${item.imageId}.upf`);
       ok++;
       await new Promise((r) => setTimeout(r, 450));
     } catch {

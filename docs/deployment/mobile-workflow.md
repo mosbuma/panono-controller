@@ -40,7 +40,7 @@ How to use Panono Control on a phone in the field. Your server hosts the install
 |---------|----------------|---------------------|
 | Chrome Android | Yes | Local Network Access prompt (grant once per site) |
 | Safari iOS | Yes | Test on your iOS version; LNA behaviour differs from Chrome |
-| Desktop Chrome | Yes | Useful for dev via [CLOUDFLARED.md](../../CLOUDFLARED.md) |
+| Desktop Chrome | Yes | Useful for dev via [CLOUDFLARED.md](../CLOUDFLARED.md) |
 
 Safari may not expose the same LNA prompt wording as Chrome. If connect fails on iOS, try staying on a tab that was opened while on camera WiFi, or use HTTP on LAN for local dev only.
 
@@ -61,4 +61,4 @@ npm run dev
 npm run cloudflare:up
 ```
 
-Open `https://<your-tunnel-hostname>`, join camera WiFi on the phone, grant LNA, connect. Set `NEXT_DEV_TUNNEL_HOST=<your-tunnel-hostname>` in `.env.local`. See [CLOUDFLARED.md](../../CLOUDFLARED.md).
+Open `https://<your-tunnel-hostname>`, join camera WiFi on the phone, grant LNA, connect. Set `NEXT_DEV_TUNNEL_HOST=<your-tunnel-hostname>` in `.env.local`. See [CLOUDFLARED.md](../CLOUDFLARED.md).

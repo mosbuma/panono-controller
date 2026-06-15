@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { UpfManifest } from "@/lib/manifest";
 import { computeExposureGains } from "@/lib/stitcher/exposure";
+import { parseAccelerometerGravity } from "@/lib/stitcher/gravity";
 import { loadAllCameras } from "@/lib/stitcher/load-camera";
 import type { CameraImage } from "@/lib/stitcher/projection";
 import type { StitchContext } from "@/lib/stitcher/projection";
@@ -37,9 +38,15 @@ export async function loadUpfForStitch(buf: Buffer): Promise<LoadedUpf> {
   const images = await loadAllCameras(zip, cameras);
   if (!images.length) throw new Error("No camera images loaded");
 
+  const accelFile = zip.file("LIS3DSH_ACCELEROMETER.dat");
+  const gravity = accelFile
+    ? parseAccelerometerGravity(await accelFile.async("nodebuffer"))
+    : null;
+
   const ctx: StitchContext = {
     vignetting,
     exposure: computeExposureGains(images),
+    gravity,
   };
 
   return { manifest, images, ctx };
