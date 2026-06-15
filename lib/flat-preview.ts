@@ -37,10 +37,7 @@ async function loadCameraBlob(zip: JSZip, cam: ManifestCamera): Promise<Blob | n
     const file = zip.file(files[0]);
     return file ? file.async("blob") : null;
   }
-  return mergeChannelJpegs(zip, files, {
-    blackLevel: cam.blackLevel,
-    colorMatrix: cam.colorMatrix,
-  });
+  return mergeChannelJpegs(zip, files);
 }
 
 async function bitmapToRgb(bmp: ImageBitmap): Promise<Uint8Array> {

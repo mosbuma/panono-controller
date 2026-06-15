@@ -23,6 +23,8 @@ export interface StitchContext {
   vignetting: VignettingCoeffs | null;
   exposure: ExposureGains[];
   blend?: StitchBlendOptions;
+  /** Mean accelerometer gravity vector (device frame), for horizon leveling. */
+  gravity?: [number, number, number] | null;
 }
 
 export function dirFromLonLat(lonDeg: number, latDeg: number): [number, number, number] {

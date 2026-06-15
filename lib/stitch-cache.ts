@@ -6,7 +6,7 @@ export type StitchMethod = "calibrated" | "opticalflow";
 
 // v3: corrected colour pipeline (black level + colourMatrix + sRGB, no double
 // white balance) — invalidate v1/v2 caches that held the old green/pink output.
-const CACHE_ROOT = path.join(process.cwd(), "data", "stitches-v3");
+const CACHE_ROOT = path.join(process.cwd(), "data", "stitches-v4");
 
 const VARIANT_OPTS: Record<
   StitchVariant,

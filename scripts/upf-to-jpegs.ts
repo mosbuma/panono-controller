@@ -2,10 +2,11 @@
  * Backend UPF → per-camera JPEG converter.
  *
  * Decodes the half-res Bayer channel planes from a Panono `.upf`, runs the
- * verified colour pipeline (see lib/merge-bayer-channels.ts:
- * GRBG demosaic → black-level linearise → colourMatrix → sRGB), and writes one
- * full-resolution JPEG per camera to disk. Mirrors the official converter's
- * per-camera output.
+ * verified pipeline (see lib/merge-bayer-channels.ts: GRBG demosaic → emit the
+ * already-display-referred bytes), and writes one full-resolution JPEG per
+ * camera to disk. Mirrors the official converter's per-camera output (MAE ≈6).
+ *   WHITE_GAIN=1  apply the residual warm white balance (MAE ≈4.7)
+ *   FINISH=1      run the local-contrast + unsharp + autoContrast finish
  *
  * Usage:
  *   npx tsc scripts/upf-to-jpegs.ts --outDir /tmp/b --module commonjs \
@@ -16,7 +17,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import sharp from "sharp";
-import { demosaicBayerPlanes, findChannelFilenames } from "../lib/merge-bayer-channels";
+import {
+  demosaicBayerPlanes,
+  findChannelFilenames,
+  REFERENCE_WHITE_GAIN,
+} from "../lib/merge-bayer-channels";
 import type { UpfManifest, ManifestCamera } from "../lib/manifest";
 
 async function grayPlane(
@@ -59,7 +64,12 @@ async function convertCamera(
       width: r.width,
       height: r.height,
     },
-    { blackLevel: cam.blackLevel, colorMatrix: cam.colorMatrix }
+    {
+      // Opt into the residual warm white-balance with WHITE_GAIN=1.
+      whiteGain: process.env.WHITE_GAIN === "1" ? REFERENCE_WHITE_GAIN : undefined,
+      // Finishing chain is off by default; FINISH=1 enables it.
+      finish: process.env.FINISH === "1",
+    }
   );
 
   await sharp(Buffer.from(rgb), { raw: { width, height, channels: 3 } })

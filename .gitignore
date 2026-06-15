@@ -13,6 +13,7 @@ public/swe-worker-development.js
 
 # production / misc build output
 dist/
+.tmp-build/
 
 # env & secrets (keep .env.example tracked)
 .env

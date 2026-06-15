@@ -99,8 +99,7 @@ async function exportCameraJpeg(zip: JSZip, cam: ManifestCamera): Promise<Buffer
         blue: b.data,
         width: r.width,
         height: r.height,
-      },
-      { blackLevel: cam.blackLevel, colorMatrix: cam.colorMatrix }
+      }
     );
 
     return sharp(rgb, { raw: { width, height, channels: 3 } })

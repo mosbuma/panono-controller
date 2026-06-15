@@ -28,28 +28,26 @@ For each of the 36 cameras in a full-resolution UPF:
 
 2. **Demosaic** the mosaic to interleaved RGB (bilinear interpolation).
 
-3. **Linearise.** Subtract the per-camera `blackLevel` (sensor pedestal) and
-   normalise: `lin = max(0, value - blackLevel) / (255 - blackLevel)`.
+3. **Emit the demosaiced bytes directly.** That's it — no black-level subtract,
+   no colour matrix, no sRGB encode.
 
-4. **Colour-correct.** Multiply the linear RGB by the per-camera 3×3
-   `colorMatrix` (rows sum to 1, so neutrals are preserved).
+> **The shipped channel planes are already display-referred.** They are
+> white-balanced AND gamma-encoded by the camera. Validated against
+> `reference/demo-image/official-converted/` (36 cameras): passing the
+> demosaiced bytes through gives **MAE ≈6** with per-channel contrast matching
+> the official (std ≈38–40 vs official ≈39–41). Re-encoding them through an sRGB
+> OETF — the previous approach — **double-gammas** the data: it roughly doubles
+> contrast (std ≈57) and lifts brightness, giving MAE ≈26. (Earlier *green*
+> output came from emitting the raw planes at half-res / with the wrong Bayer
+> phase; the *pink* output came from also multiplying by the manifest
+> `whiteBalance`. The manifest `blackLevel`, `colorMatrix` and `whiteBalance`
+> are all already baked into the planes — see §3.)
 
-5. **Encode.** Clamp to `[0,1]` and apply the standard **sRGB OETF**:
-
-   ```
-   out = v <= 0.0031308 ? 12.92*v : 1.055*v^(1/2.4) - 0.055   (×255, round)
-   ```
-
-> **Do NOT re-apply `whiteBalance`.** Validated against the official per-camera
-> output in `reference/demo-image/official-converted/`, the channel planes are
-> *already white-balanced by the camera*. Dividing a raw plane by its manifest
-> `whiteBalance` gain yields a green-dominant signal — i.e. the un-balanced
-> sensor data — confirming the planes are post-WB. Re-applying the
-> `[1.354, 1, 1.277]`-style gains over-boosts red+blue and produces a
-> magenta/pink, over-bright cast. The earlier *green* output came from emitting
-> the linear planes with neither black-level nor sRGB encoding; the brief *pink*
-> output came from double-applying white balance. The pipeline above matches the
-> official converter (per-camera mean RGB within a few levels).
+> **Optional residual white balance.** A tiny, very stable per-channel gain
+> `[1.028, 1.001, 0.922]` (the official is ~3 levels redder / ~9 bluer than the
+> bare passthrough) takes MAE **6.0 → 4.66**. It is fit to one reference capture
+> (std ≈0.02 across all 36 cameras), so it is exposed as the opt-in
+> `whiteGain` / `REFERENCE_WHITE_GAIN` and is **off by default**.
 
 ---
 
@@ -235,16 +233,30 @@ for va in [0x754fc0,0x754fc8,0x754fd0,0x754fd8,0x754fe0,0x754fe8]:
 These are precisely the **sRGB transfer-function constants**, confirming the
 encode step.
 
-> **Binary vs. real data — the white-balance reconciliation.** The binary's
-> `balanceColors` feeds the per-camera `whiteBalance` gains into the LUT, which
-> implies WB is applied at convert time. But that path operates on the truly-raw
-> sensor mosaic read via `PanonoRawReader::composeBayerComponents`. The channel
-> JPEGs *shipped inside the `.upf`* are already white-balanced (verified against
-> the official output — see [§1](#1-tldr--the-algorithm)), so for our input we
-> must **not** re-apply the gains. What we *do* need from the manifest and the
-> LUT path is the **black-level** subtraction, the **`colorMatrix`**, and the
-> **sRGB** encode — the combination that reproduces the official per-camera
-> images.
+> **`whiteBalance` is an *offset*, not a gain.** Disassembling the per-channel
+> LUT builder and its RGB caller (`processImageRGB<uchar,3>`) shows the LUT is:
+>
+> ```
+> calcColorBalanceLookupTable(table, 256, d1, d2=gamma, d3, gammaFlag):
+>   v   = d1 / (255 - |d3|) · max(0, i - d3)        // per index i
+>   out = gammaFlag && |gamma-0.41667|<0.001
+>           ? sRGB_OETF(v)·255                       // exact sRGB piecewise
+>           : (1.055·v^gamma - 0.055)·255            // generic
+> ```
+>
+> and the caller passes **`d1 = m_c` (=1.0), `d3 = whiteBalance[c]`**. So even
+> here the "white balance" enters only as `max(0, i - wb_c)` with `wb_c ≈
+> 1.0–1.35` — a sub-1.5-level black offset, *not* a multiply.
+>
+> **Crucially, this whole LUT path runs on the truly-raw sensor mosaic** read
+> via `PanonoRawReader::composeBayerComponents` — i.e. when the converter starts
+> from raw sensor data. The `_red/_green/_blue` channel JPEGs *shipped inside
+> the `.upf`* have already been through it on the camera: they are
+> white-balanced **and** sRGB-encoded. So for our input we apply **none** of
+> this — `blackLevel`, `colorMatrix`, `whiteBalance` and the sRGB encode are all
+> already baked in. Emitting the demosaiced bytes directly reproduces the
+> official output (MAE ≈6; §1). The sRGB constants above are real, but they
+> describe the camera-side encode, not a step we should repeat.
 
 ---
 
@@ -267,52 +279,110 @@ A `.upf` is a ZIP. Relevant entries:
 | `intrinsicMatrix` | 3×3 | `[[fx,0,cx],[0,fy,cy],[0,0,1]]` |
 | `rotationMatrix` | 3×3 | world→camera rotation |
 | `translationVector` | 3×1 | per-camera translation (≈0) |
-| `blackLevel` | int | sensor pedestal, subtracted on linearise (e.g. `64`) |
-| `colorMatrix` | 3×3 | **colour-correction matrix, applied** to linear RGB (rows sum to 1) |
+| `blackLevel` | int | sensor pedestal (e.g. `64`) — **already applied on camera; not used** |
+| `colorMatrix` | 3×3 | colour-correction matrix (rows sum to 1) — **not applied** (worsens R/B post-demosaic) |
 | `whiteBalance` | 3×1 | linear RGB gains — **already baked into the planes; do not re-apply** |
-| `gamma` | double | per-camera encode gamma (≈`0.41667` = 1/2.4 ⇒ sRGB) |
+| `gamma` | double | camera-side encode gamma (≈`0.41667` = 1/2.4 ⇒ sRGB) — planes are already encoded |
 | `vignettingCoeffs` | string | filename of the vignetting profile |
 | `imageWidth` / `imageHeight` | int | full-image geometry (2064×1552) |
 | `imageFormat` | string | e.g. `RAW_GR_8bit_JPEGcompressed` (GRBG) |
 
 ---
 
+## 4b. The finishing chain (`ImageAdjustment::imageImprovement`)
+
+After debayer/colour, the converter runs a fixed finishing chain. Disassembled
+from `imageImprovement` (0x454560); all numeric constants resolved from
+`.rodata`. Radii scale with image width `w` (reference 2064). Steps marked
+*improve* run only when the improve flag is set (the converter sets it):
+
+| Order | Call | Recovered parameters (at w=2064) | improve-gated |
+| ----- | ---- | -------------------------------- | ------------- |
+| 1 | `balanceColors(1,1,1, 1/γ=2.4, 0)` | neutral, **decode** (linearise) | no |
+| 2 | `Denoising::denoise(N=3, 332.8, 2.0)` | NL-means-style | no |
+| 3 | `UnsharpMask::localContrast(r, 0.0, 0.1)` | `r=max(10, w/2064·150)`, amount **0.1** | **yes** |
+| 4 | `UnsharpMask::sharpen(r, 0.0, 0.9, 1024)` | `r=max(1, w/2064·3)`, amount **0.9**, thresh 1024 (16-bit) | no |
+| 5 | `balanceColors(1,1,1, γ=0.4167, whiteBalance)` | **encode** (sRGB) + WB-offset | no |
+| 6 | `Contrast::autoContrast(0.01, 0.01, 16)` | histogram + `expf`, clip 1% lo / 1% hi, 256 bins | **yes** |
+
+Notes:
+- Steps 1 and 5 are a **decode(γ2.4) → … → encode(sRGB)** sandwich, so denoise /
+  local-contrast / sharpen operate in (approximately) linear light, and the net
+  colour transform of the two `balanceColors` passes is ~identity.
+- **`autoContrast` decoded exactly** (`Contrast::autoContrast_internal<uchar,3>`,
+  0x47c110; constants from `.rodata`: `1.0`, sign-bit, `255.0`, `0.5`). It is a
+  *black-point* operator, not a stretch:
+
+  ```
+  histMin[256], histMax[256]  // per-pixel min- and max-channel histograms
+  lo = first idx where cumsum(histMin, asc)  ≥ clipLo·N   // 1% dark point
+  hi = first idx where cumsum(histMax, desc) ≥ clipHi·N   // 1% bright point
+  span   = max(hi - lo, 1)
+  weight = exp(-k · (lo/span)²)            // k = 16; damps lift when the black
+  offset = lo · weight                     //   point is high vs. the range
+  scale  = (255 - offset) ≥ 1 ? 255/(255 - offset) : 255
+  out    = round((v - offset)·scale)       // all channels equally; clamp [0,255]
+  ```
+
+  Because the white point stays at 255 and `scale ≥ 1`, it only ever lifts the
+  black point (never reduces contrast). On our already-deep-black passthrough
+  output it barely fires (`offset≈0`, `scale≈1`).
+
+**What we implement** (`lib/finish-image.ts`): a faithful **`autoContrast`**
+plus the two unsharp steps — **local contrast** (`r≈150`, amount 0.1) and
+**unsharp sharpen** (`r≈3`, amount 0.9), `out = in + amount·(in − blur(in))` via
+a 3-pass separable box-blur Gaussian (pure typed-array JS, identical in Node and
+browser). We omit `denoise` (NL-means-ish). The whole chain is **off by
+default** (`DemosaicOptions.finish`): on the passthrough output it adds
+perceptual crispness but *lowers* numeric fidelity (MAE 6.0 → 9.3), since the
+unsharp passes re-introduce contrast.
+
+---
+
 ## 5. What we reproduce vs. omit
 
-Our implementation targets **colour fidelity**, not byte-exact equality.
+Our implementation targets **colour fidelity** to the official per-camera
+output (MAE ≈6 of 255), not byte-exact equality.
 
-| Stage | Official | Us |
+| Stage | Official (raw-sensor path) | Us (UPF channel JPEGs) |
 | ----- | -------- | -- |
 | Bayer recombine (GRBG) | yes | yes |
 | Demosaic | edge-directed (`debayerCustom`) + simple fallback | bilinear |
-| Black-level subtract | yes | **yes** (`blackLevel`) |
-| Colour matrix | yes | **yes** (`colorMatrix`) |
-| sRGB encode | yes | **yes** |
-| White balance | applied to true raw; **already baked into shipped planes** | **not re-applied** (would over-correct) |
+| Black level / colour matrix / WB / sRGB encode | yes (on raw sensor) | **none** — already baked into the shipped planes |
+| Emit bytes | — | **passthrough** (planes are already display-referred) |
+| Residual white-balance gain `[1.028,1.001,0.922]` | (implicit) | **opt-in** (`whiteGain`, off by default; MAE 6.0→4.66) |
 | Devignetting | yes (per-camera radial gains) | server stitcher only (`lib/stitcher/vignetting.ts`) |
-| Denoise / local-contrast / unsharp / auto-contrast | yes | no (cosmetic, not colour) |
+| Local contrast / unsharp sharpen | yes | implemented, **off by default** (lowers MAE; `finish`) |
+| autoContrast | yes (black-point) | faithfully ported, **off by default** (`finish`) |
+| Denoise | yes (NL-means-ish) | no |
 
-Validated against `reference/demo-image/official-converted/` — per-camera mean
-RGB matches within a few levels. Residual differences are the omitted finishing
-passes (devignetting in the merge path, denoise, contrast/sharpen), not
-hue/white-balance.
+Validated against `reference/demo-image/official-converted/` (36 cameras):
+mean RGB ≈111/109/100 vs official ≈115/109/91, per-channel std ≈38/40/38 vs
+≈39/41/39, **MAE 6.0** (→4.66 with the opt-in gain). The per-image affine floor
+is ≈3.9, so the small residual is structural (demosaic / JPEG), not tone.
 
 ---
 
 ## 6. Open items / caveats
 
+- **The planes are display-referred — this was the key insight.** Treating them
+  as linear and applying our own sRGB OETF double-gammas the data: contrast
+  roughly doubles (std ≈57 vs official ≈39) and the image brightens, giving
+  MAE ≈26. The bare passthrough (no encode) gives std ≈38–40 and MAE ≈6. This
+  also resolves the long-running "too dark / too contrasty" gap: it was the
+  redundant sRGB encode, not a missing tone curve.
 - **Channel identity is by filename**, so R↔B can't swap; the GRBG vs BGGR
   choice only affects demosaic sub-pixel alignment.
-- **Gamma source.** The manifest exposes a per-camera `gamma` (≈0.41667 = 1/2.4);
-  empirically the full sRGB piecewise curve matches the official output slightly
-  better than a pure power, so we use the sRGB OETF.
+- **Residual warm white balance.** The bare passthrough is ~3 levels too blue /
+  ~3 too low in red. A fixed gain `[1.028,1.001,0.922]` (std ≈0.02 across all 36
+  cameras → it is a real systematic offset, not scene-dependent) closes most of
+  it (MAE 6.0→4.66). It is fit to **one** reference capture, so it ships as the
+  opt-in `whiteGain`/`REFERENCE_WHITE_GAIN`, off by default. Its origin is
+  unconfirmed (it does not match the manifest `whiteBalance`).
 - **Devignetting in the merge path.** `demosaicBayerPlanes` does not apply the
   radial vignetting profile (the server stitcher does, via
   `lib/stitcher/vignetting.ts`). This is the main remaining cause of corner
   brightness differences vs. the official per-camera JPEGs.
-- **Black-level / white-point.** We normalise by `255 - blackLevel`. A true
-  white level below 255 would change tone slightly; `255` matched best on the
-  sample set.
 
 ---
 
@@ -320,10 +390,12 @@ hue/white-balance.
 
 | Concept | Our code |
 | ------- | -------- |
-| Bayer recombine + demosaic + black level + colour matrix + sRGB | `lib/merge-bayer-channels.ts` |
+| Bayer recombine + demosaic + passthrough (+ optional `whiteGain` / `finish`) | `lib/merge-bayer-channels.ts` |
 | Browser channel merge (viewer / PTGui export) | `lib/upf-client.ts` |
 | Server stitcher camera load | `lib/stitcher/load-camera.ts` |
 | Server PTGui ZIP export | `lib/stitcher/export-stitcher-zip.ts` |
 | Browser PTGui ZIP export | `lib/export-stitcher-zip-client.ts` |
-| Manifest types (`blackLevel`, `colorMatrix`, …) | `lib/manifest.ts` |
+| Manifest types | `lib/manifest.ts` |
+| Finishing chain (autoContrast + local contrast + unsharp) | `lib/finish-image.ts` |
+| Backend UPF→JPEG batch (`WHITE_GAIN=1`, `FINISH=1`) | `scripts/upf-to-jpegs.ts` |
 | Vignetting profile parse | `lib/stitcher/vignetting.ts` |

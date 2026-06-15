@@ -11,14 +11,15 @@ export interface ManifestCamera {
   rotationMatrix: number[][];
   translationVector: number[];
   /**
-   * Per-camera black level (sensor pedestal). Subtracted from the raw planes
-   * during linearisation (see lib/merge-bayer-channels.ts). Absent on preview
-   * UPFs / older manifests.
+   * Per-camera black level (sensor pedestal). Already applied on-camera to the
+   * shipped channel planes, so NOT used by our pipeline (see
+   * lib/merge-bayer-channels.ts). Reference/metadata only.
    */
   blackLevel?: number;
   /**
    * Per-camera 3x3 colour-correction matrix (rows sum to 1, neutral-
-   * preserving). Applied to the linear RGB before sRGB encoding.
+   * preserving). NOT applied — the shipped planes are already display-referred,
+   * and applying it post-demosaic worsens R/B. Reference/metadata only.
    */
   colorMatrix?: number[][];
   /**

@@ -9,7 +9,7 @@ const THUMB_STORE = "previews";
 const UPF_STORE = "previewUpfs";
 
 /** Bump when thumbnail rendering changes so stale JPEGs are regenerated. */
-export const FLAT_PREVIEW_VERSION = 3;
+export const FLAT_PREVIEW_VERSION = 4;
 
 interface PreviewRecord {
   imageId: string;

@@ -18,7 +18,8 @@ function grayChannel(tctx: CanvasRenderingContext2D, bmp: ImageBitmap): Uint8Arr
   const data = tctx.getImageData(0, 0, bmp.width, bmp.height).data;
   const gray = new Uint8Array(bmp.width * bmp.height);
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
-    gray[j] = data[i]!;
+    // Grayscale planes are stored as RGB JPEGs; average channels for robustness.
+    gray[j] = (data[i]! + data[i + 1]! + data[i + 2]!) / 3;
   }
   return gray;
 }
@@ -30,7 +31,18 @@ async function loadGrayPlane(
 ): Promise<{ data: Uint8Array; width: number; height: number }> {
   const file = zip.file(name);
   if (!file) throw new Error(`Missing ${name}`);
-  const bmp = await createImageBitmap(await file.async("blob"));
+  const blob = await file.async("blob");
+  // Raw 8-bit plane values — skip browser display colour management (would
+  // skew red/blue before our linearise → colourMatrix → sRGB pipeline).
+  let bmp: ImageBitmap;
+  try {
+    bmp = await createImageBitmap(blob, {
+      colorSpaceConversion: "none",
+      premultiplyAlpha: "none",
+    });
+  } catch {
+    bmp = await createImageBitmap(blob);
+  }
   const data = grayChannel(tctx, bmp);
   const width = bmp.width;
   const height = bmp.height;
@@ -40,13 +52,13 @@ async function loadGrayPlane(
 
 /**
  * Demosaic the half-res _red / _green0 / _green1 / _blue Bayer planes into a
- * full-resolution (2x) sRGB blob, applying the per-camera black level and
- * colour-correction matrix.
+ * full-resolution (2x) RGB blob. The planes are already display-referred, so
+ * the demosaiced bytes are emitted directly (see lib/merge-bayer-channels.ts).
  */
 export async function mergeChannelJpegs(
   zip: JSZip,
   filenames: string[],
-  color?: { blackLevel?: number; colorMatrix?: number[][] }
+  color?: { whiteGain?: readonly [number, number, number]; finish?: boolean }
 ): Promise<Blob | null> {
   const ch = findChannelFilenames(filenames);
   if (!ch.red || !ch.green0 || !ch.blue) return null;
@@ -79,7 +91,7 @@ export async function mergeChannelJpegs(
       width: w,
       height: h,
     },
-    { blackLevel: color?.blackLevel, colorMatrix: color?.colorMatrix }
+    { whiteGain: color?.whiteGain, finish: color?.finish }
   );
 
   const canvas = document.createElement("canvas");

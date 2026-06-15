@@ -26,6 +26,15 @@ interface StitchBody {
   height?: number;
   quality?: number;
   method?: StitchMethod;
+  useGravity?: boolean;
+  applyVignetting?: boolean;
+  applyExposure?: boolean;
+}
+
+function parseBool(value: unknown): boolean | undefined {
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  return undefined;
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -47,6 +56,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let force = false;
     let cacheHit = false;
     let method: StitchMethod = "calibrated";
+    let useGravity: boolean | undefined;
+    let applyVignetting: boolean | undefined;
+    let applyExposure: boolean | undefined;
 
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
@@ -64,6 +76,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const id = form.get("imageId");
       if (typeof id === "string" && id) imageId = id;
       method = parseStitchMethod(form.get("method")?.toString());
+      const w = form.get("width");
+      const h = form.get("height");
+      if (typeof w === "string" && w) width = Number(w);
+      if (typeof h === "string" && h) height = Number(h);
+      useGravity = parseBool(form.get("useGravity"));
+      applyVignetting = parseBool(form.get("applyVignetting"));
+      applyExposure = parseBool(form.get("applyExposure"));
     } else {
       const body = (await req.json()) as StitchBody;
       imageId = body.imageId;
@@ -81,6 +100,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       width = body.width;
       height = body.height;
       if (body.quality) quality = Math.min(100, Math.max(50, body.quality));
+      useGravity = parseBool(body.useGravity);
+      applyVignetting = parseBool(body.applyVignetting);
+      applyExposure = parseBool(body.applyExposure);
     }
 
     if (variant) {
@@ -121,6 +143,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       height,
       quality,
       method,
+      useGravity,
+      applyVignetting,
+      applyExposure,
     });
 
     if (imageId && variant) {

@@ -134,10 +134,7 @@ async function loadCameraTexture(
     return loadTexture(URL.createObjectURL(blob));
   }
 
-  const merged = await mergeChannelJpegs(zip, files, {
-    blackLevel: cam.blackLevel,
-    colorMatrix: cam.colorMatrix,
-  });
+  const merged = await mergeChannelJpegs(zip, files);
   if (!merged) return null;
   return loadTexture(URL.createObjectURL(merged));
 }

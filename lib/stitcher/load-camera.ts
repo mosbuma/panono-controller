@@ -50,8 +50,7 @@ export async function loadCameraRgb(
       blue: b.data,
       width: r.width,
       height: r.height,
-    },
-    { blackLevel: cam.blackLevel, colorMatrix: cam.colorMatrix }
+    }
   );
   return { rgb, width, height };
 }
